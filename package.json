@@ -1,0 +1,31 @@
+{
+  "name": "claude-code-local",
+  "version": "1.0.0",
+  "description": "Local LLM clone of Claude Code using Ollama",
+  "type": "module",
+  "main": "src/sdk.mjs",
+  "bin": {
+    "claude-local": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "ollama",
+    "local",
+    "claude-code",
+    "sdk"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "glob": "^10.3.10",
+    "yaml": "^2.3.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

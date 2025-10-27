@@ -1,0 +1,336 @@
+================================================================================
+CLAUDE CODE ARCHITECTURE ANALYSIS - EXECUTIVE SUMMARY
+================================================================================
+
+Repository: /home/user/coder-cc
+Analysis Date: 2025-10-27
+Tool Version Analyzed: @anthropic-ai/claude-code v2.0.23
+
+================================================================================
+1. COMPREHENSIVE DOCUMENTATION CREATED
+================================================================================
+
+Four documentation files have been created in this repository:
+
+1. README.md (8.1 KB)
+   - Project overview and guide to documentation
+   - Key findings summary
+   - Local LLM integration path
+   - Quick navigation guide
+
+2. ARCHITECTURE.md (12 KB)
+   - Complete system architecture
+   - File structure and technology stack
+   - API integration points
+   - Configuration system
+   - Tools and capabilities
+   - MCP integration details
+   - Session management
+   - Hooks and lifecycle events
+   - Integration points for local LLM
+
+3. API_INTEGRATION_GUIDE.md (12 KB)
+   - Detailed API integration technical guide
+   - SDK type definitions and imports
+   - Message flow structures
+   - Authentication flows (OAuth and API key)
+   - API call patterns and endpoints
+   - Model configuration
+   - Streaming implementation
+   - Tool execution patterns
+   - Cost tracking mechanisms
+   - Implementation checklist
+   - Recommended local LLM backends
+
+4. QUICK_REFERENCE.md (7.8 KB)
+   - Quick lookup guide
+   - Installation locations
+   - Key files and their purposes
+   - API integration point summary
+   - Configuration directories
+   - Environment variables
+   - Message types
+   - Available tools
+   - Permission system
+   - Query interface methods
+   - Migration checklist
+
+Total Documentation: ~40 KB
+
+================================================================================
+2. KEY FINDINGS
+================================================================================
+
+CLAUDE CODE OVERVIEW:
+- Version: 2.0.23
+- Status: Deprecated (sunset October 21, 2024)
+- Successor: @anthropic-ai/claude-agent-sdk
+- Language: JavaScript/TypeScript (ESM)
+- Runtime: Node.js 18+
+
+INSTALLATION:
+- Location: /opt/node22/lib/node_modules/@anthropic-ai/claude-code/
+- Entry Point: /opt/node22/bin/claude (cli.js)
+- Main Files:
+  * cli.js - 9.7 MB minified executable
+  * sdk.mjs - 533 KB SDK implementation
+  * sdk.d.ts - 445 lines of TypeScript definitions
+  * sdk-tools.d.ts - Tool type definitions
+
+TECHNOLOGY STACK:
+- ESM modules
+- Optional Sharp for image processing
+- Vendored Ripgrep for code search
+- WASM layout engine (yoga)
+
+================================================================================
+3. API INTEGRATION POINTS IDENTIFIED
+================================================================================
+
+AUTHENTICATION METHODS:
+1. OAuth Token (Primary)
+   - OAuth endpoint: https://console.anthropic.com/oauth/authorize
+   - File descriptor passing: oauthTokenFromFd
+   
+2. API Key (Fallback)
+   - Environment variable: ANTHROPIC_API_KEY
+   - File descriptor passing: apiKeyFromFd
+
+ANTHROPIC SDK IMPORTS:
+- MessageParam as APIUserMessage
+- BetaMessage as APIAssistantMessage
+- BetaUsage for token tracking
+- BetaRawMessageStreamEvent for streaming
+
+API ENDPOINTS (INFERRED):
+- Base URL: https://api.anthropic.com/
+- POST /messages - Create message/query
+- POST /messages/stream - Streaming messages
+- GET /models - List available models
+- GET /account - Account information
+
+SUPPORTED MODELS:
+- claude-3-5-sonnet-20241022 (latest)
+- claude-3-5-haiku-20241022
+- claude-3-opus-20250219
+- claude-haiku-4-5
+- Plus regional variants (Vertex AI, AWS Bedrock)
+
+================================================================================
+4. CONFIGURATION FILES
+================================================================================
+
+CONFIG DIRECTORY:
+- Primary: ~/.claude/ (or $CLAUDE_CONFIG_DIR)
+- Format: JSON configuration files
+- Main file: .config.json
+
+SESSION MANAGEMENT:
+- Session ID: UUID generated per session
+- Storage: ~/.claude/sessions/
+- Debug logs: ~/.claude/debug/{sessionId}.txt
+- Resume capability: Can resume with session ID
+
+ENVIRONMENT VARIABLES:
+- ANTHROPIC_API_KEY - API authentication
+- CLAUDE_CONFIG_DIR - Config directory override
+- DEBUG - Enable debug logging
+- CLAUDE_CODE_MAX_OUTPUT_TOKENS - Output limit (default: 32000)
+- BASH_MAX_OUTPUT_LENGTH - Bash output limit (default: 30000)
+- AWS_REGION, VERTEX_REGION_* - Cloud provider configs
+
+================================================================================
+5. ARCHITECTURE HIGHLIGHTS
+================================================================================
+
+MESSAGE FLOW:
+User Input → SDKUserMessage → Query Execution → AsyncGenerator<SDKMessage> 
+→ SDKAssistantMessage/SDKResultMessage → Output
+
+TOOLS AVAILABLE (18 types):
+- File: FileEdit, FileRead, FileWrite
+- Search: Glob, Grep
+- Execution: Bash, BashOutput, KillShell
+- Web: WebFetch, WebSearch
+- Agent: Agent, ExitPlanMode
+- Notebook: NotebookEdit
+- Task: TodoWrite
+- MCP: Mcp, ListMcpResources, ReadMcpResource
+
+PERMISSION SYSTEM:
+- Modes: default, acceptEdits, bypassPermissions, plan
+- Callback-based: CanUseTool for permission checking
+- Granular: Tool-level permission control
+
+HOOKS FOR OBSERVABILITY:
+- PreToolUse - Before tool execution
+- PostToolUse - After tool execution
+- UserPromptSubmit - User input submitted
+- SessionStart/SessionEnd - Lifecycle events
+- Notification, Stop, SubagentStop, PreCompact
+
+MCP INTEGRATION:
+- Stdio transport (child process)
+- SSE transport (HTTP streaming)
+- HTTP transport (REST)
+- SDK transport (in-process)
+
+================================================================================
+6. LOCAL LLM INTEGRATION PATH
+================================================================================
+
+HIGH-LEVEL STEPS:
+1. Replace Anthropic SDK imports with local LLM client
+2. Update authentication (OAuth → Simple API key or none)
+3. Update configuration to point to local endpoint
+4. Map Claude model names to local model names
+5. Adapt message format conversion
+6. Implement streaming for local LLM
+7. Test all tools and features
+8. Handle fallback scenarios
+
+RECOMMENDED LOCAL LLM BACKENDS:
+1. Ollama (Easiest)
+   - Endpoint: http://localhost:11434
+   - API format: OpenAI-compatible
+   - Models: Mistral, Llama 2, Neural Chat, etc.
+
+2. LLaMA.cpp
+   - Endpoint: http://localhost:8000
+   - API format: OpenAI-compatible
+   - Models: GGUF format
+
+3. Text Generation WebUI
+   - Endpoint: http://localhost:5000
+   - API format: Custom or OpenAI-compatible
+   - Models: Any supported
+
+ENVIRONMENT SETUP:
+- LOCAL_LLM_ENDPOINT="http://localhost:11434"
+- LOCAL_LLM_MODEL="mistral:7b"
+- (Remove ANTHROPIC_API_KEY for true local operation)
+
+================================================================================
+7. KEY INTEGRATION POINTS FOR REPLACEMENT
+================================================================================
+
+TYPE DEFINITIONS TO REPLACE:
+- APIUserMessage → Local LLM user message format
+- APIAssistantMessage → Local LLM assistant response format
+- NonNullableUsage → Local token tracking format
+- RawMessageStreamEvent → Local streaming format
+
+AUTHENTICATION TO REPLACE:
+- OAuth flow → Simplified local authentication
+- File descriptor passing → Direct token/key handling
+- Anthropic endpoints → Local endpoint
+
+COST TRACKING OPTIONS:
+- Option 1: Set cost to zero
+- Option 2: Track compute time and resource usage instead
+- Option 3: Implement custom usage metrics
+
+SESSION HANDLING:
+- UUID generation: Keep as-is
+- Storage: Adapt file paths to local storage
+- Resumption: Maintain same interface
+
+================================================================================
+8. DOCUMENTATION STRUCTURE
+================================================================================
+
+FOR QUICK START:
+→ Read: README.md (this repository)
+
+FOR ARCHITECTURE UNDERSTANDING:
+→ Read: ARCHITECTURE.md (Sections 1-11)
+
+FOR IMPLEMENTATION DETAILS:
+→ Read: API_INTEGRATION_GUIDE.md (Sections 1-14)
+
+FOR QUICK LOOKUPS DURING CODING:
+→ Use: QUICK_REFERENCE.md
+
+================================================================================
+9. CHALLENGES AND CONSIDERATIONS
+================================================================================
+
+SOURCE CODE AVAILABILITY:
+- CLI is minified (9.7 MB)
+- SDK implementation (sdk.mjs) is readable
+- Type definitions provide clearest API view
+
+MODEL COMPATIBILITY:
+- Claude models have specific capabilities
+- Local models may differ in quality/features
+- Tool use implementation varies
+- Token counting may not match exactly
+
+FEATURE COVERAGE:
+- Extended thinking feature (if used)
+- Vision/image capabilities (if used)
+- Web search integration (if used)
+- Context caching (if used)
+
+PERFORMANCE CONSIDERATIONS:
+- Local latency vs. Anthropic API
+- Resource usage (CPU, GPU, memory)
+- Token counting accuracy
+- Streaming response timing
+
+================================================================================
+10. RECOMMENDED NEXT STEPS
+================================================================================
+
+IMMEDIATE (Days 1-2):
+☐ Review README.md for overview
+☐ Study ARCHITECTURE.md Sections 1-8
+☐ Identify target local LLM backend
+☐ Set up local LLM instance (Ollama recommended)
+
+SHORT-TERM (Days 3-5):
+☐ Analyze sdk.d.ts type definitions
+☐ Create local LLM client adapter
+☐ Implement message format conversion
+☐ Update authentication mechanism
+
+MEDIUM-TERM (Days 6-10):
+☐ Implement streaming support
+☐ Test tool execution
+☐ Handle error cases
+☐ Implement fallback logic
+
+TESTING (Days 11-14):
+☐ Unit tests for message conversion
+☐ Integration tests for full flow
+☐ Performance testing
+☐ Session resumption testing
+
+================================================================================
+11. DISCLAIMER
+================================================================================
+
+This analysis is based on:
+- Type definitions from @anthropic-ai/claude-code v2.0.23
+- Minified executable analysis (cli.js)
+- Public documentation
+- Source code inspection of available files
+
+Limitations:
+- Cannot analyze minified CLI source directly
+- API endpoints are inferred
+- Exact implementation details may vary
+- This is NOT official Claude Code documentation
+
+This analysis is for educational purposes to understand the architecture for
+potential local LLM adaptation. Claude Code is proprietary software from
+Anthropic and subject to their terms of service.
+
+================================================================================
+
+For detailed information, please refer to the individual documentation files:
+- README.md - Start here
+- ARCHITECTURE.md - Deep dive into architecture
+- API_INTEGRATION_GUIDE.md - Technical implementation guide
+- QUICK_REFERENCE.md - Quick lookup during development
+
