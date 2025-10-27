@@ -130,12 +130,13 @@ async function interactiveMode() {
   while (true) {
     try {
       const userInput = await rl.question('You: ');
+      const userInputLower = userInput.toLowerCase();
 
       if (!userInput.trim()) {
         continue;
       }
 
-      if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') {
+      if (userInputLower === 'exit' || userInputLower === 'quit') {
         console.log('Goodbye!');
         rl.close();
         break;
