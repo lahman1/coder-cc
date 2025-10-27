@@ -287,13 +287,13 @@ export class OllamaClient {
    * Generate a unique message ID
    */
   generateMessageId() {
-    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 
   /**
    * Generate a unique tool use ID
    */
   generateToolId() {
-    return `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `tool_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 }
