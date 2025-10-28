@@ -74,7 +74,7 @@ export class Config {
     return {
       // Ollama settings
       ollamaEndpoint: process.env.OLLAMA_ENDPOINT || 'http://localhost:11434',
-      ollamaModel: process.env.OLLAMA_MODEL || 'mistral:latest',
+      ollamaModel: process.env.OLLAMA_MODEL || 'qwen3:32b',
 
       // Model settings
       temperature: 0.7,
