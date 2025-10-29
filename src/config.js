@@ -1,19 +1,22 @@
 /**
  * Configuration Management
- * Handles loading and saving configuration from ~/.claude-local/
+ * Handles loading and saving configuration from local project directory
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class Config {
   constructor() {
-    this.configDir = process.env.CLAUDE_LOCAL_CONFIG_DIR ||
-                     join(homedir(), '.claude-local');
+    // Use project root directory (parent of src/)
+    this.configDir = join(__dirname, '..');
     this.configFile = join(this.configDir, 'config.json');
-    this.sessionsDir = join(this.configDir, 'sessions');
-    this.debugDir = join(this.configDir, 'debug');
+    this.sessionsDir = join(this.configDir, '.sessions');
+    this.debugDir = join(this.configDir, '.debug');
 
     this.ensureConfigDir();
     this.config = this.load();
@@ -73,28 +76,22 @@ export class Config {
   getDefaults() {
     return {
       // Ollama settings
-      ollamaEndpoint: process.env.OLLAMA_ENDPOINT || 'http://localhost:11434',
-      ollamaModel: process.env.OLLAMA_MODEL || 'qwen3:32b',
+      ollamaEndpoint: 'http://localhost:11434',
+      ollamaModel: 'qwen3:32b',
 
       // Model settings
       temperature: 0.7,
       maxTokens: 32000,
 
-      // Permission settings
-      permissionMode: 'default', // 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
-
       // Tool settings
       bashMaxOutputLength: 30000,
 
       // Debug settings
-      debug: process.env.DEBUG === 'true',
-      debugTools: true,  // Set to true to see raw Ollama responses
+      debug: false,
+      debugTools: false,  // Set to true to see raw Ollama responses
 
       // Session settings
-      enableSessionResume: true,
-
-      // MCP servers (if any)
-      mcpServers: {}
+      enableSessionResume: true
     };
   }
 

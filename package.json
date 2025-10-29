@@ -1,11 +1,11 @@
 {
-  "name": "claude-code-local",
+  "name": "lc-coder",
   "version": "1.0.0",
-  "description": "Local LLM clone of Claude Code using Ollama",
+  "description": "Local LLM coding assistant using Ollama",
   "type": "module",
   "main": "src/sdk.mjs",
   "bin": {
-    "claude-local": "src/cli.js"
+    "lc-coder": "src/cli.js"
   },
   "scripts": {
     "start": "node src/cli.js",
@@ -16,7 +16,7 @@
     "llm",
     "ollama",
     "local",
-    "claude-code",
+    "coding-assistant",
     "sdk"
   ],
   "author": "",

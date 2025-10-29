@@ -1,5 +1,5 @@
 /**
- * Claude Code Local SDK
+ * LC-Coder SDK
  * Main SDK implementation using Ollama for local LLM
  */
 

@@ -10,6 +10,8 @@ build/
 # Configuration (user-specific)
 .claude-local/
 config.json
+.sessions/
+.debug/
 
 # IDE
 .vscode/

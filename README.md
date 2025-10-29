@@ -1,6 +1,6 @@
-# Claude Code Local - Complete Local LLM Implementation
+# LC-Coder - Local Coding Assistant
 
-A **complete, working implementation** of Claude Code that runs 100% locally using Ollama instead of Anthropic API calls. This is a full-featured clone with all the same capabilities as Claude Code, but powered by local open-source models.
+A **complete, working local coding assistant** that runs 100% locally using Ollama. This is a full-featured AI coding assistant powered by local open-source models, with capabilities similar to Claude Code but running entirely on your machine.
 
 ## 🚀 Features
 
@@ -100,26 +100,25 @@ In interactive mode, you can use special commands:
 
 ## ⚙️ Configuration
 
-Configuration is stored in `~/.claude-local/config.json`:
+Configuration is stored in `config.json` in the project root directory:
 
 ```json
 {
   "ollamaEndpoint": "http://localhost:11434",
-  "ollamaModel": "mistral:latest",
+  "ollamaModel": "qwen3:32b",
   "temperature": 0.7,
   "maxTokens": 32000,
-  "permissionMode": "default",
-  "debug": false
+  "debugTools": false,
+  "debug": false,
+  "bashMaxOutputLength": 30000,
+  "enableSessionResume": true
 }
 ```
 
-You can also configure via environment variables:
-
-```bash
-export OLLAMA_ENDPOINT="http://localhost:11434"
-export OLLAMA_MODEL="mistral:latest"
-export CLAUDE_LOCAL_CONFIG_DIR="$HOME/.claude-local"
-```
+**To get started:**
+1. Copy `config.example.json` to `config.json`
+2. Modify settings as needed (model name, endpoint, etc.)
+3. Set `debugTools: true` to see detailed Ollama responses during development
 
 ## 📚 Documentation
 
@@ -207,18 +206,18 @@ You: Run tests and fix any failures
 [AI reruns tests to verify]
 ```
 
-## 🆚 Comparison: Claude Code vs Claude Code Local
+## 🆚 Comparison: Cloud AI vs LC-Coder
 
-| Feature | Claude Code (Official) | Claude Code Local |
-|---------|----------------------|-------------------|
-| **LLM Backend** | Anthropic API (Claude 3.5) | Ollama (Local Models) |
-| **Privacy** | Data sent to Anthropic | 100% local |
+| Feature | Cloud AI Services | LC-Coder |
+|---------|-------------------|----------|
+| **LLM Backend** | Cloud API (GPT/Claude/etc) | Ollama (Local Models) |
+| **Privacy** | Data sent to providers | 100% local |
 | **Cost** | Pay per token (~$3-15/1M tokens) | Free |
 | **Speed** | Network latency | Local hardware speed |
 | **Offline** | No | Yes |
-| **Authentication** | OAuth/API Key required | None required |
-| **Model Choice** | Claude models only | Any Ollama model |
-| **Quality** | Very high (Claude 3.5) | Depends on model (7B-70B+) |
+| **Authentication** | API Key required | None required |
+| **Model Choice** | Provider-specific | Any Ollama model |
+| **Quality** | Very high | Depends on model (7B-70B+) |
 
 ## 🔧 Troubleshooting
 
@@ -320,9 +319,9 @@ MIT
 
 ## 🙏 Acknowledgments
 
-- **Anthropic** - For the original Claude Code design and architecture
 - **Ollama** - For making local LLM deployment easy
-- **Meta**, **Mistral AI**, and other model creators - For open-source LLMs
+- **Meta**, **Mistral AI**, **Alibaba (Qwen)** and other model creators - For open-source LLMs
+- **Anthropic** - For inspiration from Claude Code's architecture
 
 ## 📞 Support
 
@@ -333,6 +332,6 @@ For issues or questions:
 
 ---
 
-**Note**: This is an independent implementation inspired by Claude Code. It is not affiliated with or endorsed by Anthropic.
+**Note**: LC-Coder is an independent local coding assistant. It is not affiliated with or endorsed by Anthropic.
 
-Last Updated: 2025-10-27
+Last Updated: 2025-10-29

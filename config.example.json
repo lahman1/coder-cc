@@ -1,0 +1,10 @@
+{
+  "ollamaEndpoint": "http://localhost:11434",
+  "ollamaModel": "qwen3:32b",
+  "temperature": 0.7,
+  "maxTokens": 32000,
+  "debugTools": false,
+  "debug": false,
+  "bashMaxOutputLength": 30000,
+  "enableSessionResume": true
+}

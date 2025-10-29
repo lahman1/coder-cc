@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Claude Code Local CLI
- * Interactive CLI for local LLM using Ollama
+ * LC-Coder CLI
+ * Interactive CLI for local LLM coding assistant using Ollama
  */
 
 import { query, healthCheck, listModels, config } from './sdk.mjs';
@@ -55,7 +55,7 @@ function getPlatformInfo() {
 function buildSystemPrompt() {
   const platformInfo = getPlatformInfo();
 
-  return `You are Claude, an AI assistant designed to help with coding tasks and general questions.
+  return `You are LC-Coder, an AI assistant designed to help with coding tasks and general questions.
 
 SYSTEM INFORMATION:
 - Operating System: ${platformInfo.name} (${process.platform})
@@ -87,8 +87,8 @@ IMPORTANT GUIDELINES:
 const SYSTEM_PROMPT = buildSystemPrompt();
 
 async function main() {
-  console.log('Claude Code Local - Using Ollama');
-  console.log('================================\n');
+  console.log('LC-Coder - Local Coding Assistant');
+  console.log('==================================\n');
 
   // Check if Ollama is running
   console.log('Checking Ollama connection...');
