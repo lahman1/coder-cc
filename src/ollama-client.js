@@ -8,6 +8,7 @@ export class OllamaClient {
     this.endpoint = config.endpoint || process.env.OLLAMA_ENDPOINT || 'http://localhost:11434';
     this.model = config.model || process.env.OLLAMA_MODEL || 'mistral:latest';
     this.timeout = config.timeout || 300000; // 5 minutes default
+    this.debugTools = config.debugTools || false;
   }
 
   /**
@@ -213,6 +214,20 @@ export class OllamaClient {
    * Convert Ollama stream event to Anthropic-like format
    */
   convertStreamEvent(data) {
+    // Handle "thinking" field from models like qwen3 - suppress entirely during streaming
+    if (data.message && data.message.thinking !== undefined) {
+      // Completely skip thinking tokens - don't even log them
+      return {
+        type: 'message_delta',
+        delta: {}
+      };
+    }
+
+    // DEBUG: Log important events only (not thinking tokens)
+    if (this.debugTools && (data.done || data.message?.content || data.message?.tool_calls)) {
+      console.log('[DEBUG] Ollama event:', JSON.stringify(data, null, 2));
+    }
+
     if (data.done) {
       return {
         type: 'message_stop',
@@ -236,6 +251,7 @@ export class OllamaClient {
     }
 
     if (data.message && data.message.tool_calls) {
+      console.log('[TOOL CALLS DETECTED]', data.message.tool_calls);
       return {
         type: 'content_block_start',
         content_block: {

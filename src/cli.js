@@ -8,17 +8,83 @@
 import { query, healthCheck, listModels, config } from './sdk.mjs';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
+import os from 'os';
 
-const SYSTEM_PROMPT = `You are Claude, an AI assistant designed to help with coding tasks and general questions.
+// Detect platform and provide appropriate command examples
+function getPlatformInfo() {
+  const platform = process.platform;
+  const platformMap = {
+    'win32': {
+      name: 'Windows',
+      shellType: 'PowerShell/CMD',
+      pathSeparator: '\\',
+      examples: {
+        createDir: 'mkdir directory_name or New-Item -ItemType Directory -Path "path"',
+        listFiles: 'dir or Get-ChildItem',
+        removeFile: 'del file.txt or Remove-Item file.txt'
+      },
+      note: 'Use PowerShell commands or the Write tool to create files. Avoid Unix commands like mkdir -p, rm, etc.'
+    },
+    'darwin': {
+      name: 'macOS',
+      shellType: 'bash/zsh',
+      pathSeparator: '/',
+      examples: {
+        createDir: 'mkdir -p directory_name',
+        listFiles: 'ls -la',
+        removeFile: 'rm file.txt'
+      },
+      note: 'Use standard Unix/bash commands.'
+    },
+    'linux': {
+      name: 'Linux',
+      shellType: 'bash',
+      pathSeparator: '/',
+      examples: {
+        createDir: 'mkdir -p directory_name',
+        listFiles: 'ls -la',
+        removeFile: 'rm file.txt'
+      },
+      note: 'Use standard Unix/bash commands.'
+    }
+  };
+
+  return platformMap[platform] || platformMap['linux'];
+}
+
+function buildSystemPrompt() {
+  const platformInfo = getPlatformInfo();
+
+  return `You are Claude, an AI assistant designed to help with coding tasks and general questions.
+
+SYSTEM INFORMATION:
+- Operating System: ${platformInfo.name} (${process.platform})
+- Shell Type: ${platformInfo.shellType}
+- Path Separator: ${platformInfo.pathSeparator}
+- Working Directory: ${process.cwd()}
+
 You have access to various tools to help you:
 - Read, Write, Edit files
-- Execute bash commands
+- Execute bash commands (${platformInfo.note})
 - Search for files (Glob) and content (Grep)
 - Fetch web content
 - Manage todo lists
 
+PLATFORM-SPECIFIC COMMAND EXAMPLES:
+- Create directory: ${platformInfo.examples.createDir}
+- List files: ${platformInfo.examples.listFiles}
+- Remove file: ${platformInfo.examples.removeFile}
+
 You are running locally using Ollama, not connected to Anthropic servers.
-Think step-by-step and use tools when necessary to complete tasks.`;
+
+IMPORTANT GUIDELINES:
+- ALWAYS use the Write tool to create new files - it's more reliable than bash commands
+- Use appropriate commands for the ${platformInfo.name} platform
+- Think step-by-step and use tools when necessary to complete tasks
+- Wait for tool results before deciding on next actions`;
+}
+
+const SYSTEM_PROMPT = buildSystemPrompt();
 
 async function main() {
   console.log('Claude Code Local - Using Ollama');
@@ -36,6 +102,11 @@ async function main() {
   }
 
   console.log('✓ Connected to Ollama\n');
+
+  // Show platform information
+  const platformInfo = getPlatformInfo();
+  console.log(`Platform: ${platformInfo.name} (${process.platform})`);
+  console.log(`Shell: ${platformInfo.shellType}\n`);
 
   // List available models
   try {

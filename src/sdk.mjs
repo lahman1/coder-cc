@@ -31,7 +31,8 @@ export async function* query(options = {}) {
   const ollamaClient = new OllamaClient({
     endpoint: config.get('ollamaEndpoint'),
     model: model || config.get('ollamaModel'),
-    timeout: 300000
+    timeout: 300000,
+    debugTools: config.get('debugTools')
   });
 
   // Health check

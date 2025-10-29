@@ -88,6 +88,7 @@ export class Config {
 
       // Debug settings
       debug: process.env.DEBUG === 'true',
+      debugTools: true,  // Set to true to see raw Ollama responses
 
       // Session settings
       enableSessionResume: true,
