@@ -9,7 +9,7 @@ import { dirname } from 'path';
 export class WriteTool {
   constructor() {
     this.name = 'Write';
-    this.description = 'Write content to a file (creates or overwrites)';
+    this.description = 'Create new files or overwrite existing files with content. Use this to CREATE files when completing tasks like writing tests, example code, implementations, or any deliverables requested by the user.';
     this.inputSchema = {
       type: 'object',
       properties: {

@@ -6,7 +6,7 @@
 export class TodoWriteTool {
   constructor() {
     this.name = 'TodoWrite';
-    this.description = 'Create and manage a task list';
+    this.description = 'Create and manage a task checklist. Use this at the START of complex multi-step tasks to plan all steps you need to complete. Break tasks into small, actionable items and mark them as you finish.';
     this.inputSchema = {
       type: 'object',
       properties: {

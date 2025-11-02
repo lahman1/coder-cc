@@ -6,6 +6,8 @@
  */
 
 import { query, healthCheck, listModels, config } from './sdk.mjs';
+import { Orchestrator } from './orchestrator.js';
+import { CodebaseIndexer } from './rag/indexer.js';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import os from 'os';
@@ -55,7 +57,7 @@ function getPlatformInfo() {
 function buildSystemPrompt() {
   const platformInfo = getPlatformInfo();
 
-  return `You are LC-Coder, an AI assistant designed to help with coding tasks and general questions.
+  return `You are LC-Coder, a systematic coding assistant who COMPLETES tasks by delivering working code and files.
 
 SYSTEM INFORMATION:
 - Operating System: ${platformInfo.name} (${process.platform})
@@ -63,25 +65,75 @@ SYSTEM INFORMATION:
 - Path Separator: ${platformInfo.pathSeparator}
 - Working Directory: ${process.cwd()}
 
-You have access to various tools to help you:
+AVAILABLE TOOLS:
 - Read, Write, Edit files
 - Execute bash commands (${platformInfo.note})
 - Search for files (Glob) and content (Grep)
 - Fetch web content
-- Manage todo lists
+- TodoWrite - Create and manage task checklists
 
-PLATFORM-SPECIFIC COMMAND EXAMPLES:
+WORKFLOW - Follow these stages for EVERY task:
+
+STAGE 1: UNDERSTAND
+- Use Glob to find relevant files (e.g., "**/*.test.js" for test files)
+- Use Grep to search for specific code patterns
+- Use Read to examine existing implementations
+- Identify what exists and what's needed
+
+STAGE 2: PLAN
+- For complex tasks, use TodoWrite to create a checklist of ALL steps
+- Break down the task into concrete, actionable items
+- Example: "Write tests for WebSocket handling" becomes:
+  [ ] Read existing WebSocket implementation
+  [ ] Find current test files to understand conventions
+  [ ] Identify missing test coverage
+  [ ] Write test file with all test cases
+  [ ] Verify tests follow project conventions
+
+STAGE 3: EXECUTE
+- Work through EVERY item in your plan
+- Use Write tool to CREATE new files (test files, example code, implementations)
+- Use Edit tool to MODIFY existing files
+- Mark todos as completed as you finish each item
+- DO NOT stop until ALL tasks are complete
+
+STAGE 4: VERIFY (when applicable)
+- Review what you created
+- Ensure deliverables match the request
+- Check that files are complete and working
+
+CRITICAL RULES:
+1. When asked to "write tests", "create code", "implement X", or "add files":
+   → Your job is to CREATE the actual files using the Write tool
+   → DO NOT just explain what should be in them
+   → Generate complete, working, ready-to-use code
+
+2. For multi-step tasks, ALWAYS use TodoWrite first to plan all steps
+
+3. Complete ALL stages before finishing - do not stop after analysis
+
+4. Use the Write tool for creating files - it's more reliable than bash commands
+
+WORKFLOW EXAMPLES:
+
+Example 1: "Write unit tests for the authentication module"
+Stage 1: Read auth module, find existing test files
+Stage 2: TodoWrite checklist: [Read auth.js, Find test conventions, Write test file]
+Stage 3: Use Write tool to create complete test file with all test cases
+Stage 4: Review test coverage
+
+Example 2: "Create a JSON error handling example with tests"
+Stage 1: Find error handling code, understand exception types
+Stage 2: TodoWrite: [Create example.cpp, Create test.cpp, Update CMakeLists.txt]
+Stage 3: Use Write tool to generate all 3 files with complete code
+Stage 4: Verify files compile and demonstrate all error types
+
+PLATFORM-SPECIFIC COMMANDS:
 - Create directory: ${platformInfo.examples.createDir}
 - List files: ${platformInfo.examples.listFiles}
 - Remove file: ${platformInfo.examples.removeFile}
 
-You are running locally using Ollama, not connected to Anthropic servers.
-
-IMPORTANT GUIDELINES:
-- ALWAYS use the Write tool to create new files - it's more reliable than bash commands
-- Use appropriate commands for the ${platformInfo.name} platform
-- Think step-by-step and use tools when necessary to complete tasks
-- Wait for tool results before deciding on next actions`;
+Remember: You are running locally using Ollama. Your value is in COMPLETING tasks and DELIVERING working code, not just explaining what should be done.`;
 }
 
 const SYSTEM_PROMPT = buildSystemPrompt();
@@ -187,10 +239,13 @@ async function runQuery(prompt) {
  * Interactive REPL mode
  */
 async function interactiveMode() {
-  console.log('Interactive mode - Type your questions or "exit" to quit\n');
+  console.log('Interactive mode - Type your questions or "exit" to quit');
+  console.log('💡 Tip: Use /multiagent for complex coding tasks (experimental)\n');
 
   const rl = readline.createInterface({ input, output });
   const conversationHistory = [];
+  let multiAgentMode = false;  // Track multi-agent mode
+  let reviewerEnabled = false;  // Track reviewer agent
 
   // Add system prompt
   conversationHistory.push({
@@ -215,7 +270,19 @@ async function interactiveMode() {
 
       // Special commands
       if (userInput.startsWith('/')) {
-        await handleCommand(userInput, conversationHistory);
+        const result = await handleCommand(userInput, conversationHistory);
+        if (result && result.multiAgentMode !== undefined) {
+          multiAgentMode = result.multiAgentMode;
+        }
+        if (result && result.reviewerEnabled !== undefined) {
+          reviewerEnabled = result.reviewerEnabled;
+        }
+        continue;
+      }
+
+      // Check if multi-agent mode is enabled
+      if (multiAgentMode) {
+        await runMultiAgent(userInput, reviewerEnabled);
         continue;
       }
 
@@ -282,6 +349,11 @@ Available commands:
   /model <name>      - Switch to a different model
   /config            - Show current configuration
   /clear             - Clear conversation history
+  /multiagent        - Enable multi-agent mode (Explorer → Planner → Coder)
+  /singleagent       - Disable multi-agent mode (default)
+  /reviewer          - Enable reviewer agent (validation & auto-fixing)
+  /noreviewer        - Disable reviewer agent (default)
+  /index [path]      - Index codebase for RAG (requires ChromaDB running)
   /exit or exit      - Exit the program
 `);
       break;
@@ -319,9 +391,124 @@ Available commands:
       console.log('Conversation history cleared.\n');
       break;
 
+    case 'multiagent':
+      console.log('✅ Multi-agent mode ENABLED');
+      console.log('Next prompt will use: Explorer → Planner → Coder pipeline\n');
+      return { multiAgentMode: true };
+
+    case 'singleagent':
+      console.log('✅ Multi-agent mode DISABLED');
+      console.log('Returning to single-agent mode\n');
+      return { multiAgentMode: false };
+
+    case 'reviewer':
+      console.log('✅ Reviewer agent ENABLED');
+      console.log('Next multi-agent run will include validation & auto-fixing\n');
+      return { reviewerEnabled: true };
+
+    case 'noreviewer':
+      console.log('✅ Reviewer agent DISABLED');
+      console.log('Multi-agent will skip validation step\n');
+      return { reviewerEnabled: false };
+
+    case 'index':
+      console.log('📚 Indexing codebase for RAG...');
+      const indexPath = parts[1] || process.cwd();
+      await indexCodebase(indexPath);
+      break;
+
     default:
       console.log(`Unknown command: ${cmd}`);
       console.log('Type /help for available commands\n');
+  }
+}
+
+/**
+ * Run multi-agent orchestrator
+ */
+async function runMultiAgent(userRequest, reviewerEnabled = false) {
+  console.log('\n🤖 Launching multi-agent pipeline...\n');
+
+  const orchestrator = new Orchestrator({
+    maxRetries: 2,
+    enableReviewer: reviewerEnabled
+  });
+
+  try {
+    const results = await orchestrator.execute(userRequest);
+
+    // Show summary
+    const summary = orchestrator.getSummary(results);
+
+    console.log('\n' + '='.repeat(60));
+    console.log('PIPELINE SUMMARY');
+    console.log('='.repeat(60));
+    console.log(`Success: ${summary.success ? '✅' : '❌'}`);
+    console.log(`Stages completed: ${summary.stages_completed}/${summary.total_stages}`);
+
+    if (summary.files_created && summary.files_created.length > 0) {
+      console.log(`\nFiles created:`);
+      summary.files_created.forEach(file => {
+        console.log(`  ✓ ${file.path}`);
+      });
+    }
+
+    if (summary.errors && summary.errors.length > 0) {
+      console.log(`\nErrors:`);
+      summary.errors.forEach(error => {
+        console.log(`  ✗ ${error.stage}: ${error.error}`);
+      });
+    }
+
+    console.log('='.repeat(60) + '\n');
+
+  } catch (error) {
+    console.error('\n❌ Multi-agent pipeline failed:');
+    console.error(error.message);
+    console.log('\n💡 Tip: Try /singleagent mode or simplify your request\n');
+  }
+}
+
+/**
+ * Index codebase for RAG
+ */
+async function indexCodebase(directoryPath) {
+  try {
+    console.log(`\n📂 Indexing directory: ${directoryPath}`);
+    console.log('⚠️  Note: This requires ChromaDB to be running at http://localhost:8000');
+    console.log('   Start with: source .venv/bin/activate && chroma run --host localhost --port 8000\n');
+
+    const indexer = new CodebaseIndexer({
+      chromaUrl: 'http://localhost:8000',
+      collectionName: 'codebase'
+    });
+
+    // Initialize
+    const initialized = await indexer.initialize();
+    if (!initialized) {
+      console.error('\n❌ Failed to initialize indexer. Make sure ChromaDB is running.\n');
+      return;
+    }
+
+    // Index the directory
+    const stats = await indexer.indexDirectory(directoryPath, {
+      verbose: true,
+      excludePatterns: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '__pycache__/**', '*.pyc']
+    });
+
+    console.log('\n✅ Indexing complete!');
+    console.log(`   📊 Files indexed: ${stats.files_indexed}`);
+    console.log(`   ⊘ Files skipped: ${stats.files_skipped}`);
+    console.log(`   📦 Total chunks: ${stats.chunks_created}`);
+    console.log('\n💡 Now you can use RAGQuery in agents to search the codebase semantically!\n');
+
+  } catch (error) {
+    console.error(`\n❌ Indexing failed: ${error.message}`);
+    if (error.message.includes('ECONNREFUSED')) {
+      console.log('\n💡 ChromaDB is not running. Start it with:');
+      console.log('   source .venv/bin/activate');
+      console.log('   chroma run --host localhost --port 8000\n');
+    }
   }
 }
 

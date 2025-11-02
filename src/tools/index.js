@@ -12,6 +12,7 @@ import { GrepTool } from './grep.js';
 import { TodoWriteTool } from './todo-write.js';
 import { WebFetchTool } from './web-fetch.js';
 import { WebSearchTool } from './web-search.js';
+import { RAGQueryTool } from './rag-query.js';
 
 export const TOOLS = {
   Bash: BashTool,
@@ -22,7 +23,8 @@ export const TOOLS = {
   Grep: GrepTool,
   TodoWrite: TodoWriteTool,
   WebFetch: WebFetchTool,
-  WebSearch: WebSearchTool
+  WebSearch: WebSearchTool,
+  RAGQuery: RAGQueryTool
 };
 
 /**

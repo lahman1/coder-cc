@@ -163,10 +163,11 @@ export async function* query(options = {}) {
               session: session
             });
 
-            // Add tool result to message history
+            // Add tool result to message history with context
+            const toolResultText = result.text || result.error || JSON.stringify(result);
             const toolMessage = {
               role: 'user',
-              content: `Tool ${toolName} result:\n${result.text || result.error || JSON.stringify(result)}`
+              content: `Tool ${toolName} completed.\n\nResult:\n${toolResultText}\n\nContinue with your workflow. If you are in STAGE 2 (PLAN), proceed to STAGE 3 (EXECUTE). If in STAGE 3, continue working through your checklist until ALL tasks are complete.`
             };
 
             messageHistory.push(toolMessage);

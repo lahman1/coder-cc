@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from 'fs';
 export class EditTool {
   constructor() {
     this.name = 'Edit';
-    this.description = 'Edit a file by replacing old_string with new_string';
+    this.description = 'Modify existing files by replacing specific text. Use this to make precise changes to existing code, update implementations, or fix issues in files that already exist.';
     this.inputSchema = {
       type: 'object',
       properties: {
