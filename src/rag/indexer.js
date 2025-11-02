@@ -42,15 +42,15 @@ export class CodebaseIndexer {
       // Get or create collection
       try {
         this.collection = await this.client.getCollection({ name: this.config.collectionName });
-        console.log(`✅ Connected to existing collection: ${this.config.collectionName}`);
+        console.log(`[SUCCESS] Connected to existing collection: ${this.config.collectionName}`);
       } catch (error) {
         this.collection = await this.client.createCollection({ name: this.config.collectionName });
-        console.log(`✅ Created new collection: ${this.config.collectionName}`);
+        console.log(`[SUCCESS] Created new collection: ${this.config.collectionName}`);
       }
 
       return true;
     } catch (error) {
-      console.error(`❌ Failed to initialize RAG: ${error.message}`);
+      console.error(`[FAILED] Failed to initialize RAG: ${error.message}`);
       return false;
     }
   }
@@ -61,7 +61,7 @@ export class CodebaseIndexer {
   async indexDirectory(directoryPath, options = {}) {
     const { verbose = true, excludePatterns = ['node_modules/**', '.git/**', 'dist/**', 'build/**'] } = options;
 
-    console.log(`\n📂 Indexing directory: ${directoryPath}`);
+    console.log(`\n[INFO] Indexing directory: ${directoryPath}`);
 
     // Find all supported files
     const pattern = `**/*{${this.config.supportedExtensions.join(',')}}`;
@@ -71,7 +71,7 @@ export class CodebaseIndexer {
       absolute: true
     });
 
-    console.log(`📁 Found ${files.length} files to index\n`);
+    console.log(`[INFO] Found ${files.length} files to index\n`);
 
     let indexed = 0;
     let skipped = 0;
@@ -82,7 +82,7 @@ export class CodebaseIndexer {
         // Skip large files
         const stats = await import('fs').then(fs => fs.promises.stat(filePath));
         if (stats.size > this.config.maxFileSize) {
-          if (verbose) console.log(`⊘ Skipping large file: ${filePath}`);
+          if (verbose) console.log(`[SKIP] Skipping large file: ${filePath}`);
           skipped++;
           continue;
         }
@@ -99,18 +99,18 @@ export class CodebaseIndexer {
         }
 
       } catch (error) {
-        console.error(`⚠️  Error processing ${filePath}: ${error.message}`);
+        console.error(`[WARNING] Error processing ${filePath}: ${error.message}`);
         skipped++;
       }
     }
 
     // Batch insert chunks into ChromaDB
     if (chunks.length > 0) {
-      console.log(`\n💾 Storing ${chunks.length} code chunks in vector database...`);
+      console.log(`\n[INFO] Storing ${chunks.length} code chunks in vector database...`);
       await this.insertChunks(chunks);
     }
 
-    console.log(`\n✅ Indexing complete!`);
+    console.log(`\n[SUCCESS] Indexing complete!`);
     console.log(`   Files indexed: ${indexed}`);
     console.log(`   Files skipped: ${skipped}`);
     console.log(`   Total chunks: ${chunks.length}`);
@@ -456,7 +456,7 @@ export class CodebaseIndexer {
 
         console.log(`   Batch ${i + 1}/${batches.length} stored`);
       } catch (error) {
-        console.error(`   ⚠️  Failed to insert batch ${i + 1}: ${error.message}`);
+        console.error(`   [WARNING] Failed to insert batch ${i + 1}: ${error.message}`);
         // Continue with next batch
       }
     }
@@ -491,10 +491,10 @@ export class CodebaseIndexer {
     try {
       await this.client.deleteCollection({ name: this.config.collectionName });
       this.collection = await this.client.createCollection({ name: this.config.collectionName });
-      console.log(`✅ Collection cleared: ${this.config.collectionName}`);
+      console.log(`[SUCCESS] Collection cleared: ${this.config.collectionName}`);
       return true;
     } catch (error) {
-      console.error(`❌ Failed to clear collection: ${error.message}`);
+      console.error(`[FAILED] Failed to clear collection: ${error.message}`);
       return false;
     }
   }
@@ -508,5 +508,91 @@ export class CodebaseIndexer {
       collection: this.config.collectionName,
       total_chunks: count
     };
+  }
+
+  /**
+   * Search for code using semantic similarity
+   * @param {string} queryText - The search query
+   * @param {Object} options - Search options
+   * @returns {Array} Array of search results with code chunks and metadata
+   */
+  async searchCode(queryText, options = {}) {
+    if (!this.collection) {
+      throw new Error('Collection not initialized. Call initialize() first.');
+    }
+
+    const {
+      nResults = 5,
+      includeCode = true,
+      filterType = null, // 'function', 'class', 'test', etc.
+      filterLanguage = null, // 'python', 'javascript', etc.
+      filterFile = null // Specific file pattern
+    } = options;
+
+    try {
+      // Generate embedding for the query
+      const queryEmbedding = await this.generateEmbeddings([queryText]);
+
+      // Build where clause for filtering
+      const whereClause = {};
+      if (filterType) whereClause.type = filterType;
+      if (filterLanguage) whereClause.language = filterLanguage;
+      if (filterFile) whereClause.file = { $contains: filterFile };
+
+      // Query the collection
+      const results = await this.collection.query({
+        queryEmbeddings: queryEmbedding,
+        nResults: nResults,
+        where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+        include: includeCode ? ['documents', 'metadatas', 'distances'] : ['metadatas', 'distances']
+      });
+
+      // Format results
+      const formattedResults = [];
+      if (results.ids && results.ids[0]) {
+        for (let i = 0; i < results.ids[0].length; i++) {
+          formattedResults.push({
+            id: results.ids[0][i],
+            score: 1 - results.distances[0][i], // Convert distance to similarity score
+            metadata: results.metadatas[0][i],
+            code: includeCode && results.documents ? results.documents[0][i] : null
+          });
+        }
+      }
+
+      return formattedResults;
+    } catch (error) {
+      console.error('[RAG] Search error:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Find similar code to a given code snippet
+   * @param {string} codeSnippet - The code to find similar matches for
+   * @param {Object} options - Search options
+   * @returns {Array} Array of similar code chunks
+   */
+  async findSimilarCode(codeSnippet, options = {}) {
+    return this.searchCode(codeSnippet, {
+      ...options,
+      nResults: options.nResults || 10
+    });
+  }
+
+  /**
+   * Search for specific patterns like API endpoints, imports, etc.
+   * @param {string} pattern - Pattern to search for (e.g., '@app.get', 'import')
+   * @param {Object} options - Search options
+   * @returns {Array} Array of matching code chunks
+   */
+  async searchPattern(pattern, options = {}) {
+    // Construct a semantic query that describes the pattern
+    const semanticQuery = `Find code that contains ${pattern} patterns`;
+
+    return this.searchCode(semanticQuery, {
+      ...options,
+      nResults: options.nResults || 20
+    });
   }
 }

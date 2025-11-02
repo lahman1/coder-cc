@@ -20,7 +20,7 @@ export class BaseAgent {
 
     // Add attempt-specific strengthening
     if (attemptNumber > 0) {
-      prompt += `\n\n⚠️ RETRY ATTEMPT #${attemptNumber + 1}: Your previous attempt failed validation. You MUST follow the requirements exactly this time.`;
+      prompt += `\n\n[WARNING] RETRY ATTEMPT #${attemptNumber + 1}: Your previous attempt failed validation. You MUST follow the requirements exactly this time.`;
     }
 
     // Add context from previous agents
@@ -123,7 +123,7 @@ export class BaseAgent {
         if (event.type === 'tool_result') {
           // Validate tool is allowed for this agent
           if (this.allowedTools.length > 0 && !this.allowedTools.includes(event.tool)) {
-            console.log(`\n⚠️  [${this.name} Agent] Used RESTRICTED tool: ${event.tool}`);
+            console.log(`\n[WARNING] [${this.name} Agent] Used RESTRICTED tool: ${event.tool}`);
             console.log(`   Allowed tools: ${this.allowedTools.join(', ')}`);
             // Store as restricted tool call
             result.tool_calls.push({

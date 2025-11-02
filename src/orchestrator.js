@@ -7,6 +7,7 @@ import { ExplorerAgent } from './agents/explorer.js';
 import { PlannerAgent } from './agents/planner.js';
 import { CoderAgent } from './agents/coder.js';
 import { ReviewerAgent } from './agents/reviewer.js';
+import { config } from './config.js';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 
@@ -51,7 +52,7 @@ export class Orchestrator {
       for (const stage of this.stages) {
         // Skip disabled stages
         if (stage.enabled === false) {
-          console.log(`\n⊘ Skipping ${stage.name.toUpperCase()} (disabled)\n`);
+          console.log(`\n[SKIP] Skipping ${stage.name.toUpperCase()} (disabled)\n`);
           continue;
         }
 
@@ -67,10 +68,10 @@ export class Orchestrator {
             result: stageResult
           };
 
-          console.log(`\n└─ ${stage.name.toUpperCase()} COMPLETED ✓ ────────────────────────────┘\n`);
+          console.log(`\n└─ ${stage.name.toUpperCase()} COMPLETED [OK] ────────────────────────────┘\n`);
 
         } catch (error) {
-          console.error(`\n└─ ${stage.name.toUpperCase()} FAILED ✗ ───────────────────────────────┘`);
+          console.error(`\n└─ ${stage.name.toUpperCase()} FAILED [X] ───────────────────────────────┘`);
           console.error(`Error: ${error.message}\n`);
 
           results.stages[stage.name] = {
@@ -92,7 +93,7 @@ export class Orchestrator {
       results.success = true;
 
       console.log('\n╔════════════════════════════════════════════════════════════╗');
-      console.log('║          Multi-Agent Pipeline Completed ✓                  ║');
+      console.log('║          Multi-Agent Pipeline Completed [SUCCESS]          ║');
       console.log('╚════════════════════════════════════════════════════════════╝\n');
 
       return results;
@@ -102,7 +103,7 @@ export class Orchestrator {
       results.error = error.message;
 
       console.log('\n╔════════════════════════════════════════════════════════════╗');
-      console.log('║          Multi-Agent Pipeline Failed ✗                    ║');
+      console.log('║          Multi-Agent Pipeline Failed [ERROR]               ║');
       console.log('╚════════════════════════════════════════════════════════════╝\n');
 
       throw error;
@@ -125,27 +126,44 @@ export class Orchestrator {
           return result;
         } else {
           const errorMsg = result.validated?.message || 'Agent validation failed';
-          console.log(`\n⚠️  Validation failed: ${errorMsg}`);
+          const verboseValidation = config.get('verboseValidation');
+
+          console.log(`\n[WARNING] Validation failed: ${errorMsg}`);
+
+          // Provide specific guidance based on agent type
+          if (verboseValidation && result.validated?.details) {
+            console.log('[DETAILS] Validation issues:');
+            if (result.validated.details.missingTools) {
+              console.log(`  - Missing required tools: ${result.validated.details.missingTools.join(', ')}`);
+            }
+            if (result.validated.details.requiredCount) {
+              console.log(`  - Expected at least ${result.validated.details.requiredCount} items`);
+            }
+            if (result.validated.details.suggestion) {
+              console.log(`  - Suggestion: ${result.validated.details.suggestion}`);
+            }
+          }
+
           lastError = new Error(errorMsg);
 
           if (attempt < this.config.maxRetries) {
-            console.log(`🔄 Retrying (attempt ${attempt + 2}/${this.config.maxRetries + 1})...\n`);
+            console.log(`[RETRY] Retrying (attempt ${attempt + 2}/${this.config.maxRetries + 1})...\n`);
             continue;
           }
         }
       } catch (error) {
         lastError = error;
-        console.error(`\n⚠️  Agent error: ${error.message}`);
+        console.error(`\n[WARNING] Agent error: ${error.message}`);
 
         if (attempt < this.config.maxRetries) {
-          console.log(`🔄 Retrying (attempt ${attempt + 2}/${this.config.maxRetries + 1})...\n`);
+          console.log(`[RETRY] Retrying (attempt ${attempt + 2}/${this.config.maxRetries + 1})...\n`);
           continue;
         }
       }
     }
 
     // All retries exhausted - ask user for intervention
-    console.log(`\n❌ All ${this.config.maxRetries + 1} attempts failed for ${stage.name} agent.\n`);
+    console.log(`\n[FAILED] All ${this.config.maxRetries + 1} attempts failed for ${stage.name} agent.\n`);
 
     const shouldContinue = await this.askUserForIntervention(stage, context, lastError);
 

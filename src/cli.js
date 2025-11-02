@@ -9,6 +9,7 @@ import { query, healthCheck, listModels, config, Session } from './sdk.mjs';
 import { queryEnhanced } from './sdk-enhanced.mjs';
 import { Orchestrator } from './orchestrator.js';
 import { CodebaseIndexer } from './rag/indexer.js';
+import { requestAnalyzer } from './request-analyzer.js';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { readdirSync, statSync } from 'fs';
@@ -156,7 +157,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('✓ Connected to Ollama\n');
+  console.log('[Connected] to Ollama\n');
 
   // Show platform information
   const platformInfo = getPlatformInfo();
@@ -183,9 +184,21 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length > 0) {
+    // Check for force flags
+    let forceMode = null;
+    let promptArgs = args;
+
+    if (args[0] === '--multi' || args[0] === '--force-multi') {
+      forceMode = 'multi';
+      promptArgs = args.slice(1);
+    } else if (args[0] === '--single' || args[0] === '--force-single') {
+      forceMode = 'single';
+      promptArgs = args.slice(1);
+    }
+
     // Non-interactive mode: run single query
-    const prompt = args.join(' ');
-    await runQuery(prompt);
+    const prompt = promptArgs.join(' ');
+    await runQuery(prompt, forceMode);
   } else {
     // Interactive mode
     await interactiveMode();
@@ -195,8 +208,47 @@ async function main() {
 /**
  * Run a single query
  */
-async function runQuery(prompt) {
+async function runQuery(prompt, forceMode = null) {
   console.log('User:', prompt);
+
+  // Analyze the request to determine best approach
+  const analysis = requestAnalyzer.analyze(prompt);
+
+  // Show analysis if configured
+  const showAnalysis = config.get('showRequestAnalysis') !== false;
+  if (showAnalysis) {
+    console.log(requestAnalyzer.getSummary(analysis));
+  }
+
+  // Determine mode: forced > analyzer recommendation > config default
+  let useMultiAgent = false;
+  if (forceMode === 'multi') {
+    useMultiAgent = true;
+    console.log('[INFO] Using multi-agent mode (forced)');
+  } else if (forceMode === 'single') {
+    useMultiAgent = false;
+    console.log('[INFO] Using single-agent mode (forced)');
+  } else if (analysis.recommendation === 'multi-agent' && analysis.confidence >= 0.6) {
+    useMultiAgent = true;
+    console.log('[INFO] Using multi-agent mode (analyzer recommendation)');
+  } else if (config.get('defaultMode') === 'multiagent' && analysis.confidence < 0.8) {
+    // Use config default only if analyzer is not confident
+    useMultiAgent = true;
+    console.log('[INFO] Using multi-agent mode (config default, low confidence)');
+  } else {
+    useMultiAgent = false;
+    if (!showAnalysis) {
+      console.log('[INFO] Using single-agent mode');
+    }
+  }
+
+  if (useMultiAgent) {
+    // Run multi-agent orchestrator
+    const reviewerEnabled = config.get('enableReviewer') || false;
+    await runMultiAgent(prompt, reviewerEnabled);
+    return;
+  }
+
   console.log('\nAssistant: ');
 
   let assistantResponse = '';
@@ -243,13 +295,15 @@ async function runQuery(prompt) {
  */
 async function interactiveMode() {
   console.log('Interactive mode - Type your questions or "exit" to quit');
-  console.log('💡 Tip: Use /multiagent for complex coding tasks (experimental)\n');
+  console.log('[TIP] Multi-agent mode enabled by default. Use /singleagent for simpler mode\n');
 
   const rl = readline.createInterface({ input, output });
   const conversationHistory = [];
-  let multiAgentMode = false;  // Track multi-agent mode
+  let multiAgentMode = config.get('defaultMode') !== 'singleagent';  // Multi-agent by default
   let reviewerEnabled = false;  // Track reviewer agent
-  let enhancedMode = config.get('enhancedMode') !== false;  // Enhanced mode on by default
+  let enhancedMode = false;  // Disabled as it has bugs
+  let autoMode = false;  // Auto-routing based on request analyzer
+  let forceNext = null;  // Force mode for next request only
 
   // Add system prompt
   conversationHistory.push({
@@ -277,6 +331,7 @@ async function interactiveMode() {
         const result = await handleCommand(userInput, conversationHistory);
         if (result && result.multiAgentMode !== undefined) {
           multiAgentMode = result.multiAgentMode;
+          autoMode = false;  // Disable auto mode when manually setting
         }
         if (result && result.reviewerEnabled !== undefined) {
           reviewerEnabled = result.reviewerEnabled;
@@ -284,14 +339,39 @@ async function interactiveMode() {
         if (result && result.enhancedMode !== undefined) {
           enhancedMode = result.enhancedMode;
         }
+        if (result && result.autoMode !== undefined) {
+          autoMode = result.autoMode;
+        }
+        if (result && result.forceNext !== undefined) {
+          forceNext = result.forceNext;
+        }
         if (result && result.resumedSession) {
           // Session was resumed, history already updated by handleCommand
         }
         continue;
       }
 
-      // Check if multi-agent mode is enabled
-      if (multiAgentMode) {
+      // Determine routing mode
+      let useMultiAgentForThis = false;
+
+      // Check for force flags from commands
+      if (forceNext) {
+        useMultiAgentForThis = forceNext === 'multi';
+        console.log(`[INFO] Using ${forceNext}-agent mode (forced for this request)`);
+        // Clear the force flag after use
+        forceNext = null;
+      } else if (autoMode) {
+        // Use analyzer to decide
+        const analysis = requestAnalyzer.analyze(userInput);
+        console.log(requestAnalyzer.getSummary(analysis));
+        useMultiAgentForThis = analysis.recommendation === 'multi-agent' && analysis.confidence >= 0.6;
+      } else {
+        // Use the configured default
+        useMultiAgentForThis = multiAgentMode;
+      }
+
+      // Execute with appropriate mode
+      if (useMultiAgentForThis) {
         await runMultiAgent(userInput, reviewerEnabled);
         continue;
       }
@@ -328,9 +408,9 @@ async function interactiveMode() {
           } else if (event.type === 'tool_result') {
             console.log(`\n[Tool: ${event.tool}]`);
           } else if (event.type === 'verification_warning') {
-            console.log(`\n⚠️ Verification issues: ${event.issues.join(', ')}`);
+            console.log(`\n[WARNING] Verification issues: ${event.issues.join(', ')}`);
           } else if (event.type === 'retry_info') {
-            console.log(`\n🔄 Retry successful after ${event.attempts} attempts`);
+            console.log(`\n[RETRY] Successful after ${event.attempts} attempts`);
           } else if (event.type === 'error') {
             console.error('\nError:', event.message);
           }
@@ -424,6 +504,12 @@ Available commands:
   /singleagent       - Disable multi-agent mode (default)
   /reviewer          - Enable reviewer agent (validation & auto-fixing)
   /noreviewer        - Disable reviewer agent (default)
+  /analyze <request> - Analyze a request to see routing recommendation
+  /auto              - Enable auto mode (analyzer decides routing)
+  /force-multi       - Force multi-agent mode for next request only
+  /force-single      - Force single-agent mode for next request only
+  /fallback          - Enable automatic fallback to single-agent on failure
+  /nofallback        - Disable automatic fallback
   /index [path]      - Index codebase for RAG (requires ChromaDB running)
   /exit or exit      - Exit the program
 `);
@@ -463,37 +549,69 @@ Available commands:
       break;
 
     case 'enhanced':
-      console.log('✅ Enhanced mode ENABLED');
+      console.log('[ENABLED] Enhanced mode');
       console.log('Features: automatic verification, smart retry, and task completion focus\n');
       return { enhancedMode: true };
 
     case 'basic':
-      console.log('✅ Enhanced mode DISABLED');
+      console.log('[DISABLED] Enhanced mode');
       console.log('Using basic mode without verification and retry\n');
       return { enhancedMode: false };
 
     case 'multiagent':
-      console.log('✅ Multi-agent mode ENABLED');
-      console.log('Next prompt will use: Explorer → Planner → Coder pipeline\n');
+      console.log('[ENABLED] Multi-agent mode');
+      console.log('Next prompt will use: Explorer -> Planner -> Coder pipeline\n');
       return { multiAgentMode: true };
 
     case 'singleagent':
-      console.log('✅ Multi-agent mode DISABLED');
+      console.log('[DISABLED] Multi-agent mode');
       console.log('Returning to single-agent mode\n');
       return { multiAgentMode: false };
 
     case 'reviewer':
-      console.log('✅ Reviewer agent ENABLED');
+      console.log('[ENABLED] Reviewer agent');
       console.log('Next multi-agent run will include validation & auto-fixing\n');
       return { reviewerEnabled: true };
 
     case 'noreviewer':
-      console.log('✅ Reviewer agent DISABLED');
+      console.log('[DISABLED] Reviewer agent');
       console.log('Multi-agent will skip validation step\n');
       return { reviewerEnabled: false };
+    case 'analyze':
+      // Analyze the rest of the command
+      const requestToAnalyze = parts.slice(1).join(' ');
+      if (!requestToAnalyze) {
+        console.log('Usage: /analyze <your request>');
+        console.log('Example: /analyze create a hello world script\n');
+      } else {
+        const analysis = requestAnalyzer.analyze(requestToAnalyze);
+        console.log(requestAnalyzer.getSummary(analysis));
+        console.log(`\n[TIP] Use /auto to let analyzer decide, or /force-multi or /force-single to override\n`);
+      }
+      return {};
+    case 'auto':
+      console.log('[ENABLED] Auto mode - Request analyzer will decide multi-agent vs single-agent');
+      console.log('Each request will be analyzed for optimal routing\n');
+      return { autoMode: true };
+    case 'force-multi':
+      console.log('[FORCED] Multi-agent mode for next request only');
+      return { forceNext: 'multi' };
+    case 'force-single':
+      console.log('[FORCED] Single-agent mode for next request only');
+      return { forceNext: 'single' };
+    case 'fallback':
+      config.set('enableFallback', true);
+      console.log('[ENABLED] Automatic fallback to single-agent on failure');
+      console.log('If multi-agent pipeline fails, will automatically retry with single-agent mode\n');
+      return {};
+    case 'nofallback':
+      config.set('enableFallback', false);
+      console.log('[DISABLED] Automatic fallback');
+      console.log('Multi-agent failures will not automatically retry\n');
+      return {};
 
     case 'index':
-      console.log('📚 Indexing codebase for RAG...');
+      console.log('[INFO] Indexing codebase for RAG...');
       const indexPath = parts[1] || process.cwd();
       await indexCodebase(indexPath);
       break;
@@ -579,10 +697,51 @@ Available commands:
 }
 
 /**
+ * Run single-agent fallback
+ */
+async function runSingleAgentFallback(prompt) {
+  console.log('Assistant (Single-Agent Fallback): ');
+
+  let assistantResponse = '';
+
+  try {
+    for await (const event of query({
+      prompt: `${SYSTEM_PROMPT}\n\nUser: ${prompt}`,
+      signal: AbortSignal.timeout(300000) // 5 minute timeout
+    })) {
+      if (event.type === 'stream_event') {
+        if (event.event.type === 'content_block_delta' && event.event.delta?.text) {
+          process.stdout.write(event.event.delta.text);
+          assistantResponse += event.event.delta.text;
+        }
+      } else if (event.type === 'tool_result') {
+        console.log(`\n[Tool: ${event.tool}]`);
+        if (event.result.text) {
+          const result = event.result.text.length > 500
+            ? event.result.text.substring(0, 500) + '...'
+            : event.result.text;
+          console.log(result);
+        }
+        console.log('');
+      } else if (event.type === 'error') {
+        throw new Error(event.message);
+      } else if (event.type === 'session_end') {
+        console.log(`\n\nSession ID: ${event.session.id}`);
+      }
+    }
+  } catch (error) {
+    console.error('\nError during single-agent execution:', error.message);
+    throw error;
+  }
+
+  return assistantResponse;
+}
+
+/**
  * Run multi-agent orchestrator
  */
 async function runMultiAgent(userRequest, reviewerEnabled = false) {
-  console.log('\n🤖 Launching multi-agent pipeline...\n');
+  console.log('\n[INFO] Launching multi-agent pipeline...\n');
 
   const orchestrator = new Orchestrator({
     maxRetries: 2,
@@ -598,29 +757,48 @@ async function runMultiAgent(userRequest, reviewerEnabled = false) {
     console.log('\n' + '='.repeat(60));
     console.log('PIPELINE SUMMARY');
     console.log('='.repeat(60));
-    console.log(`Success: ${summary.success ? '✅' : '❌'}`);
+    console.log(`Success: ${summary.success ? '[YES]' : '[NO]'}`);
     console.log(`Stages completed: ${summary.stages_completed}/${summary.total_stages}`);
 
     if (summary.files_created && summary.files_created.length > 0) {
       console.log(`\nFiles created:`);
       summary.files_created.forEach(file => {
-        console.log(`  ✓ ${file.path}`);
+        console.log(`  [OK] ${file.path}`);
       });
     }
 
     if (summary.errors && summary.errors.length > 0) {
       console.log(`\nErrors:`);
       summary.errors.forEach(error => {
-        console.log(`  ✗ ${error.stage}: ${error.error}`);
+        console.log(`  [FAIL] ${error.stage}: ${error.error}`);
       });
     }
 
     console.log('='.repeat(60) + '\n');
 
   } catch (error) {
-    console.error('\n❌ Multi-agent pipeline failed:');
+    console.error('\n[FAILED] Multi-agent pipeline failed:');
     console.error(error.message);
-    console.log('\n💡 Tip: Try /singleagent mode or simplify your request\n');
+
+    // Automatic fallback to single-agent mode if enabled
+    const enableFallback = config.get('enableFallback') !== false;
+    if (enableFallback) {
+      console.log('\n[FALLBACK] Attempting single-agent mode...\n');
+
+      try {
+        await runSingleAgentFallback(userRequest);
+        console.log('\n[FALLBACK] Single-agent mode completed successfully\n');
+        return { success: true, fallback: true };
+      } catch (fallbackError) {
+        console.error('[FALLBACK] Single-agent mode also failed:');
+        console.error(fallbackError.message);
+        console.log('\n[TIP] Try simplifying your request or breaking it into smaller tasks\n');
+        return { success: false, errors: [error.message, fallbackError.message] };
+      }
+    } else {
+      console.log('\n[TIP] Try /singleagent mode or simplify your request\n');
+      return { success: false, error: error.message };
+    }
   }
 }
 
@@ -629,8 +807,8 @@ async function runMultiAgent(userRequest, reviewerEnabled = false) {
  */
 async function indexCodebase(directoryPath) {
   try {
-    console.log(`\n📂 Indexing directory: ${directoryPath}`);
-    console.log('⚠️  Note: This requires ChromaDB to be running at http://localhost:8000');
+    console.log(`\n[INFO] Indexing directory: ${directoryPath}`);
+    console.log('[WARNING] Note: This requires ChromaDB to be running at http://localhost:8000');
     console.log('   Start with: source .venv/bin/activate && chroma run --host localhost --port 8000\n');
 
     const indexer = new CodebaseIndexer({
@@ -641,7 +819,7 @@ async function indexCodebase(directoryPath) {
     // Initialize
     const initialized = await indexer.initialize();
     if (!initialized) {
-      console.error('\n❌ Failed to initialize indexer. Make sure ChromaDB is running.\n');
+      console.error('\n[FAILED] Failed to initialize indexer. Make sure ChromaDB is running.\n');
       return;
     }
 
@@ -651,16 +829,16 @@ async function indexCodebase(directoryPath) {
       excludePatterns: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '__pycache__/**', '*.pyc']
     });
 
-    console.log('\n✅ Indexing complete!');
-    console.log(`   📊 Files indexed: ${stats.files_indexed}`);
-    console.log(`   ⊘ Files skipped: ${stats.files_skipped}`);
-    console.log(`   📦 Total chunks: ${stats.chunks_created}`);
-    console.log('\n💡 Now you can use RAGQuery in agents to search the codebase semantically!\n');
+    console.log('\n[SUCCESS] Indexing complete!');
+    console.log(`   [STATS] Files indexed: ${stats.files_indexed}`);
+    console.log(`   [SKIP] Files skipped: ${stats.files_skipped}`);
+    console.log(`   [DATA] Total chunks: ${stats.chunks_created}`);
+    console.log('\n[TIP] Now you can use RAGQuery in agents to search the codebase semantically!\n');
 
   } catch (error) {
-    console.error(`\n❌ Indexing failed: ${error.message}`);
+    console.error(`\n[FAILED] Indexing failed: ${error.message}`);
     if (error.message.includes('ECONNREFUSED')) {
-      console.log('\n💡 ChromaDB is not running. Start it with:');
+      console.log('\n[TIP] ChromaDB is not running. Start it with:');
       console.log('   source .venv/bin/activate');
       console.log('   chroma run --host localhost --port 8000\n');
     }

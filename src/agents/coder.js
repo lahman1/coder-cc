@@ -5,28 +5,37 @@
 
 import { BaseAgent } from './base-agent.js';
 
-const CODER_PROMPT = `You are a CODER agent. Your ONLY job is to write actual code files using the Write and Edit tools.
+const CODER_PROMPT = `You are a CODER agent. Your job is to WRITE CODE using Write/Edit tools.
+
+## CRITICAL MINDSET:
+YOU ARE A DOER, NOT AN EXPLAINER.
+When you see "Create file X", you immediately use Write tool.
+When you see "Modify file Y", you immediately use Edit tool.
+NO EXPLANATIONS. JUST ACTION.
 
 ## YOUR ROLE:
-You are the third agent in a pipeline. You receive a checklist from the Planner and must execute it by creating files.
+You execute the checklist by ACTUALLY creating/modifying files.
+You DO NOT explain what you would do. You DO IT.
 
-## AVAILABLE TOOLS:
-- Write: Create new files or overwrite existing ones (PRIMARY TOOL FOR NEW FILES)
-- Edit: Modify existing files by replacing text
-- Read: Read files if you need to reference existing code
-- Glob: Find files by pattern (e.g., find where to put test files, find similar examples)
-- Grep: Search for patterns in code (e.g., find imports, fixtures, class names)
-- TodoWrite: Update the checklist as you complete items
+## TOOLS YOU MUST USE:
+- Write: [PRIMARY] Create new files (USE THIS IMMEDIATELY)
+- Edit: [PRIMARY] Modify existing files (USE THIS IMMEDIATELY)
+- Read: Read files for reference
+- TodoWrite: Mark tasks complete
+- Glob/Grep: Find files if needed
 
-## FORBIDDEN TOOLS:
-⚠️ You are FORBIDDEN from using Bash to run commands. Your job is WRITING code, not EXECUTING it.
+## FORBIDDEN:
+- Bash [NEVER] - You write code, not run it
+- Explaining instead of doing [NEVER]
 
-## YOUR TASK:
-1. **Review the checklist** provided by the Planner
-2. **Work through EVERY item** in order
-3. **Use Write tool to CREATE files** with complete, working code
-4. **Use Edit tool to MODIFY files** when needed
-5. **Mark todos as completed** as you finish them
+## EXECUTION PATTERN:
+For EACH todo item:
+1. Read the task
+2. IMMEDIATELY use Write or Edit
+3. Mark as complete with TodoWrite
+4. Move to next task
+
+NO TALKING. JUST DOING.
 
 ## CODE REQUIREMENTS:
 - Generate COMPLETE, working code (not TODO comments or placeholders)
@@ -52,35 +61,42 @@ Then use the Write tool to actually create it.
 4. Update TodoWrite to mark items complete as you finish
 5. DO NOT stop until ALL checklist items are done
 
-## EXAMPLE WORKFLOW:
-Checklist:
-1. ○ Read existing WebSocket implementation
-2. ○ Create tests/test_websocket_advanced.py with 3 test cases
-3. ○ Verify tests follow project conventions
+## EXAMPLE - RIGHT vs WRONG:
 
-You should:
-1. Use Read to examine WebSocket implementation
-2. Use Write to create complete test file with ALL 3 test cases
-3. Mark todos as completed using TodoWrite
-4. Verify the code follows conventions
+Checklist says: "Create tests/test_hello.py with hello world function"
+
+WRONG (DO NOT DO THIS):
+"I will create a Python file that prints hello world..."
+"The file should contain a function that..."
+"Here's what the code would look like..."
+
+RIGHT (DO THIS):
+[Immediately use Write tool]
+Write({
+  "file_path": "tests/test_hello.py",
+  "content": "def hello():\n    print('Hello World')\n\nif __name__ == '__main__':\n    hello()"
+})
+
+Then mark complete with TodoWrite.
+NO EXPLANATION. JUST ACTION.
 
 ## WHAT SUCCESS LOOKS LIKE:
-✅ Every checklist item is completed
-✅ All requested files are created with Write tool
-✅ Files contain complete, working code
-✅ Code follows project conventions
-✅ TodoWrite shows all items as completed
+[OK] Every checklist item is completed
+[OK] All requested files are created with Write tool
+[OK] Files contain complete, working code
+[OK] Code follows project conventions
+[OK] TodoWrite shows all items as completed
 
 ## WHAT FAILURE LOOKS LIKE:
-❌ Explaining what code should look like without writing it
-❌ Creating partial/incomplete files
-❌ Stopping before finishing the checklist
-❌ Writing TODO comments instead of real code
-❌ Not using Write/Edit tools
+[X] Explaining what code should look like without writing it
+[X] Creating partial/incomplete files
+[X] Stopping before finishing the checklist
+[X] Writing TODO comments instead of real code
+[X] Not using Write/Edit tools
 
 Remember: You are the DOER, not the EXPLAINER. Code speaks louder than words!
 
-⚠️ MANDATORY: You MUST use Write or Edit tool at least once. If you don't create files, you fail.`;
+[MANDATORY] You MUST use Write or Edit tool at least once. If you don't create files, you fail.`;
 
 export class CoderAgent extends BaseAgent {
   constructor() {
@@ -98,11 +114,16 @@ export class CoderAgent extends BaseAgent {
     // Check if Write or Edit was used
     const writeCall = result.tool_calls.find(call => call.tool === 'Write');
     const editCall = result.tool_calls.find(call => call.tool === 'Edit');
+    const todoWriteCall = result.tool_calls.find(call => call.tool === 'TodoWrite');
 
     if (!writeCall && !editCall) {
       return {
         success: false,
-        message: 'Coder MUST use Write or Edit tool to create/modify files. No file operations detected.'
+        message: 'Coder MUST use Write or Edit tool to create/modify files. No file operations detected.',
+        details: {
+          missingTools: ['Write or Edit'],
+          suggestion: 'You must use Write to create new files or Edit to modify existing files. Your job is to WRITE CODE, not explain it.'
+        }
       };
     }
 
@@ -112,27 +133,44 @@ export class CoderAgent extends BaseAgent {
     if (filesCreated.length === 0) {
       return {
         success: false,
-        message: 'Write/Edit tools were called but no valid files were created.'
+        message: 'Write/Edit tools were called but no valid files were created.',
+        details: {
+          requiredCount: 1,
+          suggestion: 'Ensure Write/Edit calls completed successfully. Check file paths are valid and content is provided.'
+        }
       };
     }
 
     // Check if code looks complete (not just TODO comments)
-    const hasRealCode = this.validateCodeQuality(result);
+    const codeQualityCheck = this.validateCodeQuality(result);
 
-    if (!hasRealCode) {
+    if (!codeQualityCheck.isValid) {
       return {
         success: false,
-        message: 'Files were created but appear to contain placeholders or TODO comments instead of working code.'
+        message: 'Files were created but appear to contain placeholders or TODO comments instead of working code.',
+        details: {
+          issues: codeQualityCheck.issues,
+          suggestion: 'Write complete, working code. Replace TODO comments with actual implementations. Include all necessary imports, function bodies, and logic.'
+        }
       };
     }
 
-    // NEW: Validate syntax of generated code files
+    // Validate syntax of generated code files
     const syntaxCheck = await this.validateSyntax(filesCreated);
     if (!syntaxCheck.valid) {
       return {
         success: false,
-        message: `Generated code has syntax errors: ${syntaxCheck.errors.join(', ')}`
+        message: 'Generated code has syntax errors.',
+        details: {
+          syntaxErrors: syntaxCheck.errors,
+          suggestion: 'Fix syntax errors in the generated code. Common issues: unmatched brackets, missing colons, incorrect indentation.'
+        }
       };
+    }
+
+    // Check if TodoWrite was used to update progress
+    if (context.plan && context.plan.todos && !todoWriteCall) {
+      console.log('  [WARNING] Coder did not update todos with TodoWrite to mark tasks complete');
     }
 
     return {
@@ -193,7 +231,7 @@ export class CoderAgent extends BaseAgent {
         if (fixedContent !== content) {
           const { writeFileSync } = await import('fs');
           writeFileSync(file.path, fixedContent, 'utf-8');
-          console.log(`  ⚠️  Fixed escaped quotes in ${file.path}`);
+          console.log(`  [WARNING] Fixed escaped quotes in ${file.path}`);
         }
 
         // Validate syntax based on file type
@@ -250,24 +288,26 @@ export class CoderAgent extends BaseAgent {
    * Validate that code looks real, not placeholders
    */
   validateCodeQuality(result) {
-    const output = result.output.toLowerCase();
+    const output = result.output;
+    const issues = [];
 
     // Bad signs (TODO comments, placeholders)
     const badPatterns = [
-      /# todo:/gi,
-      /\/\/ todo:/gi,
-      /\.\.\.\s*$/gm,  // Ellipsis at end of line
-      /# implementation here/gi,
-      /\/\/ implementation here/gi,
-      /pass\s*$/gm,  // Python pass statements alone
-      /placeholder/gi
+      { pattern: /# todo:/gi, description: 'TODO comments found' },
+      { pattern: /\/\/ todo:/gi, description: 'TODO comments found' },
+      { pattern: /\.\.\.\s*$/gm, description: 'Ellipsis placeholders found' },
+      { pattern: /# implementation here/gi, description: 'Placeholder comments found' },
+      { pattern: /\/\/ implementation here/gi, description: 'Placeholder comments found' },
+      { pattern: /pass\s*$/gm, description: 'Empty pass statements found' },
+      { pattern: /placeholder/gi, description: 'Placeholder text found' }
     ];
 
     let badCount = 0;
-    badPatterns.forEach(pattern => {
-      const matches = output.match(pattern);
-      if (matches) {
+    badPatterns.forEach(check => {
+      const matches = output.match(check.pattern);
+      if (matches && matches.length > 0) {
         badCount += matches.length;
+        issues.push(`${check.description} (${matches.length} occurrence${matches.length > 1 ? 's' : ''})`);
       }
     });
 
@@ -291,6 +331,13 @@ export class CoderAgent extends BaseAgent {
 
     // Code quality check: more good patterns than bad
     // Allow some TODOs but not if they dominate the code
-    return goodCount > badCount * 2;
+    const isValid = goodCount > badCount * 2;
+
+    return {
+      isValid: isValid,
+      issues: issues,
+      goodCount: goodCount,
+      badCount: badCount
+    };
   }
 }

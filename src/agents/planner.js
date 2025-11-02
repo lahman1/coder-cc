@@ -5,28 +5,41 @@
 
 import { BaseAgent } from './base-agent.js';
 
-const PLANNER_PROMPT = `You are a PLANNER agent. Your job is to analyze context and create a detailed task checklist using TodoWrite.
+const PLANNER_PROMPT = `You are a PLANNER agent. Your ONLY job is to create a todo checklist BY CALLING THE TODOWRITE TOOL.
+
+## FIRST ACTION - DO THIS IMMEDIATELY:
+When you see this prompt, your FIRST action must be to CALL the TodoWrite tool.
+Don't explain. Don't output JSON. CALL THE TOOL.
+
+## CRITICAL RULES - READ CAREFULLY:
+[MANDATORY] You MUST use TodoWrite tool - ACTUALLY CALL IT
+[FORBIDDEN] You CANNOT use Write or Edit tools
+[REQUIRED] Create at least 2 specific todo items
+[REQUIRED] Make the tool call, don't just output JSON
 
 ## YOUR ROLE:
-You are the second agent in a pipeline. You receive exploration results and must create an actionable plan.
+You receive exploration results and create a step-by-step plan.
+You DO NOT write code. You DO NOT execute tasks. You ONLY plan.
 
-## AVAILABLE TOOLS:
-- Read: Read files to understand context and conventions
-- Glob: Find files by pattern if you need additional context
-- Grep: Search for specific patterns in code
-- TodoWrite: Create and manage task checklists (YOU MUST USE THIS!)
+## TOOLS YOU MUST USE:
+1. TodoWrite - [MANDATORY] Create the checklist
+2. Read - Optional: Read files for more context
+3. Grep - Optional: Search for patterns
+4. Glob - Optional: Find more files
 
 ## FORBIDDEN TOOLS:
-⚠️ You are FORBIDDEN from using Write, Edit, or Bash tools. Your job is PLANNING, not EXECUTION.
-- DO NOT use Write to create files - that's the Coder agent's job
-- DO NOT use Edit to modify files - that's the Coder agent's job
-- DO NOT use Bash to run commands - that's the Explorer agent's job
+- Write [NEVER USE] - The Coder will write files
+- Edit [NEVER USE] - The Coder will edit files
+- Bash [NEVER USE] - Not for planning
 
-## YOUR TASK:
-1. **Analyze the user request** and exploration results
-2. **Break down the work** into specific, actionable steps
-3. **Create a TodoWrite checklist** with ALL steps needed
-4. **Be specific** - "Write tests" → "Write test file X.py with test_method_a, test_method_b, test_method_c"
+## YOUR TASK - STOP AFTER TODOWRITE:
+1. Call TodoWrite to create the checklist
+2. STOP - Do nothing else
+3. DO NOT use Write, Edit, or Bash
+4. Your job is DONE after TodoWrite
+
+REMEMBER: You ONLY plan. The CODER will execute.
+After calling TodoWrite, you are FINISHED.
 
 ## CHECKLIST REQUIREMENTS:
 Each todo item must:
@@ -35,25 +48,30 @@ Each todo item must:
 - Be executable by a Coder agent (who will write the actual code)
 - Have clear success criteria
 
-## OUTPUT FORMAT:
-You MUST use the TodoWrite tool with this structure:
+## HOW TO CALL TODOWRITE - CRITICAL:
+You MUST make a tool call. Don't just output JSON.
+The CORRECT way to call TodoWrite:
 
-\`\`\`json
-{
+[TOOL CALLS DETECTED]
+Tool: TodoWrite
+Arguments: {
   "todos": [
     {
-      "content": "Read existing WebSocket implementation in fastapi/websockets.py",
+      "content": "Read tests/test_hello.py to check existing content",
       "status": "pending",
-      "activeForm": "Reading WebSocket implementation"
+      "activeForm": "Reading existing file"
     },
     {
-      "content": "Write test file tests/test_websocket_advanced.py with 5 test cases",
+      "content": "Write tests/test_hello.py with hello world script",
       "status": "pending",
-      "activeForm": "Writing WebSocket test file"
+      "activeForm": "Writing hello world script"
     }
   ]
 }
-\`\`\`
+
+DO NOT just write JSON in your response.
+DO NOT explain what you would do.
+ACTUALLY CALL the TodoWrite tool with the arguments.
 
 ## CRITICAL RULES:
 1. YOU MUST USE TodoWrite - this is not optional
@@ -76,7 +94,9 @@ Your checklist should include:
 
 Remember: The Coder agent will execute this checklist item-by-item. Make it clear and actionable!
 
-⚠️ MANDATORY: You MUST call the TodoWrite tool before finishing. If you don't, you fail.`;
+[MANDATORY] Call TodoWrite ONCE and STOP.
+[FORBIDDEN] Do NOT use Write, Edit, or Bash.
+[REMEMBER] Your ONLY job: Create the todo list. Then STOP.`;
 
 export class PlannerAgent extends BaseAgent {
   constructor() {
@@ -97,7 +117,11 @@ export class PlannerAgent extends BaseAgent {
     if (!todoWriteCall) {
       return {
         success: false,
-        message: 'Planner MUST use TodoWrite tool to create a checklist. No TodoWrite call detected.'
+        message: 'Planner MUST use TodoWrite tool to create a checklist. No TodoWrite call detected.',
+        details: {
+          missingTools: ['TodoWrite'],
+          suggestion: 'You must call TodoWrite with a list of todos. Each todo should be a specific, actionable task.'
+        }
       };
     }
 
@@ -107,14 +131,37 @@ export class PlannerAgent extends BaseAgent {
     if (!todos || todos.length === 0) {
       return {
         success: false,
-        message: 'TodoWrite was called but no valid todos were created.'
+        message: 'TodoWrite was called but no valid todos were created.',
+        details: {
+          requiredCount: 2,
+          suggestion: 'Ensure TodoWrite is called with properly formatted todos array containing content, status, and activeForm fields.'
+        }
       };
     }
 
+    // Validate minimum complexity
     if (todos.length < 2) {
       return {
         success: false,
-        message: `Only ${todos.length} todo(s) created. Complex tasks require at least 2 steps. Break it down further.`
+        message: `Only ${todos.length} todo(s) created. Complex tasks require at least 2 steps.`,
+        details: {
+          requiredCount: 2,
+          actualCount: todos.length,
+          suggestion: 'Break down the task into more specific steps. Include steps for: reading context, writing/modifying code, and verification.'
+        }
+      };
+    }
+
+    // Check quality of todos
+    const qualityIssues = this.validateTodoQuality(todos);
+    if (qualityIssues.length > 0) {
+      return {
+        success: false,
+        message: 'Todos lack specificity or actionable details.',
+        details: {
+          issues: qualityIssues,
+          suggestion: 'Each todo must be specific and actionable. Include file paths, function names, or clear descriptions of what to do.'
+        }
       };
     }
 
@@ -126,6 +173,42 @@ export class PlannerAgent extends BaseAgent {
         raw_output: result.output
       }
     };
+  }
+
+  /**
+   * Validate the quality of todos
+   */
+  validateTodoQuality(todos) {
+    const issues = [];
+
+    todos.forEach((todo, index) => {
+      const content = todo.content.toLowerCase();
+
+      // Check for vague todos
+      if (content.length < 10) {
+        issues.push(`Todo ${index + 1} is too short: "${todo.content}"`);
+      }
+
+      // Check for non-actionable words
+      const vaguePatterns = [
+        /^do /,
+        /^handle /,
+        /^process /,
+        /^work on /,
+        /^deal with /
+      ];
+
+      if (vaguePatterns.some(pattern => pattern.test(content))) {
+        issues.push(`Todo ${index + 1} is too vague: "${todo.content}"`);
+      }
+
+      // Check that Write/Create tasks include file paths
+      if ((content.includes('write') || content.includes('create')) && !content.includes('/') && !content.includes('.')) {
+        issues.push(`Todo ${index + 1} should specify a file path: "${todo.content}"`);
+      }
+    });
+
+    return issues;
   }
 
   /**
