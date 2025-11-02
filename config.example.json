@@ -6,5 +6,8 @@
   "debugTools": false,
   "debug": false,
   "bashMaxOutputLength": 30000,
-  "enableSessionResume": true
+  "enableSessionResume": true,
+  "enhancedMode": true,
+  "autoVerify": true,
+  "smartRetry": true
 }

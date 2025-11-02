@@ -179,9 +179,14 @@ Each session includes:
 - Compute time
 - Session metadata
 
-To resume a session (TODO: implement resume command):
-```bash
-npm start --resume <session-id>
+To list available sessions in interactive mode:
+```
+You: /sessions
+```
+
+To resume a previous session:
+```
+You: /resume <session-id>
 ```
 
 ## Switching Models

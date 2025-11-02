@@ -9,9 +9,18 @@ A **complete, working local coding assistant** that runs 100% locally using Olla
 - ✅ **Offline Capable** - Works without internet
 - ✅ **All Tools Implemented** - Bash, Read, Write, Edit, Glob, Grep, WebFetch, TodoWrite, and more
 - ✅ **Streaming Responses** - Real-time output as the model generates
-- ✅ **Session Management** - Save and resume conversations
+- ✅ **Session Management** - Save and resume conversations with `/sessions` and `/resume`
 - ✅ **Multiple Model Support** - Use any Ollama model (Mistral, Llama, CodeLlama, etc.)
 - ✅ **Interactive & Non-Interactive Modes** - REPL or single commands
+- ✅ **Enhanced Mode** - Advanced features to match Claude Code's effectiveness:
+  - 🎯 **Task Completion Focus** - Never just explains, always completes the work
+  - 🔍 **Automatic Verification** - Verifies all file operations and command outputs
+  - 🔄 **Smart Retry Logic** - Intelligently retries with alternative approaches on failure
+  - 📊 **Quality Checks** - Validates code quality and completeness
+- ✅ **Multi-Agent Mode** - Orchestrated pipeline with specialized agents (Explorer → Planner → Coder → Reviewer)
+- ✅ **RAG Support** - Index and query codebases using ChromaDB for semantic search
+- ✅ **Test Suite** - Comprehensive test coverage with `npm test`
+- ✅ **Platform Detection** - Automatic detection of Windows, macOS, or Linux with appropriate commands
 
 ## 📋 Prerequisites
 
@@ -96,6 +105,13 @@ In interactive mode, you can use special commands:
 - `/model <name>` - Switch to a different model
 - `/config` - Show current configuration
 - `/clear` - Clear conversation history
+- `/sessions` - List saved sessions
+- `/resume <id>` - Resume a previous session
+- `/multiagent` - Enable multi-agent mode (Explorer → Planner → Coder)
+- `/singleagent` - Disable multi-agent mode (default)
+- `/reviewer` - Enable reviewer agent (validation & auto-fixing)
+- `/noreviewer` - Disable reviewer agent (default)
+- `/index [path]` - Index codebase for RAG (requires ChromaDB)
 - `/exit` or `exit` - Exit the program
 
 ## ⚙️ Configuration
@@ -120,6 +136,21 @@ Configuration is stored in `config.json` in the project root directory:
 2. Modify settings as needed (model name, endpoint, etc.)
 3. Set `debugTools: true` to see detailed Ollama responses during development
 
+## 🧪 Testing
+
+Run the test suite to verify everything is working:
+
+```bash
+npm test
+```
+
+The test suite includes:
+- Configuration management tests
+- Session management tests
+- Ollama client integration tests
+- Tool functionality tests
+- Platform detection tests
+
 ## 📚 Documentation
 
 - **[USER_GUIDE.md](USER_GUIDE.md)** - Complete user guide with examples
@@ -135,8 +166,18 @@ coder-cc/
 │   ├── cli.js              # CLI entry point
 │   ├── sdk.mjs             # Core SDK implementation
 │   ├── ollama-client.js    # Ollama API client
+│   ├── orchestrator.js     # Multi-agent orchestrator
 │   ├── config.js           # Configuration management
 │   ├── session.js          # Session management
+│   ├── agents/             # Specialized agents
+│   │   ├── base-agent.js   # Base agent class
+│   │   ├── explorer.js     # Code exploration agent
+│   │   ├── planner.js      # Task planning agent
+│   │   ├── coder.js        # Code implementation agent
+│   │   └── reviewer.js     # Code review agent
+│   ├── rag/                # RAG implementation
+│   │   ├── indexer.js      # Codebase indexer
+│   │   └── query.js        # Semantic query
 │   └── tools/              # Tool implementations
 │       ├── index.js        # Tool registry
 │       ├── bash.js         # Bash tool
@@ -146,11 +187,69 @@ coder-cc/
 │       ├── glob.js         # File pattern matching
 │       ├── grep.js         # Text search tool
 │       ├── todo-write.js   # Task management
+│       ├── rag-query.js    # RAG query tool
 │       ├── web-fetch.js    # Web fetching
 │       └── web-search.js   # Web search
+├── test/                   # Test suite
+│   ├── test-runner.js      # Test runner
+│   ├── test-config.js      # Config tests
+│   ├── test-session.js     # Session tests
+│   ├── test-ollama-client.js # Client tests
+│   ├── test-tools.js       # Tool tests
+│   └── test-platform-detection.js # Platform tests
+├── .sessions/              # Saved sessions (auto-created)
+├── .debug/                 # Debug logs (auto-created)
 ├── package.json
+├── config.json             # User configuration
+├── config.example.json     # Example configuration
 ├── README.md
-└── USER_GUIDE.md
+├── USER_GUIDE.md
+└── CLAUDE.md              # Project instructions for Claude
+```
+
+## 🚀 Enhanced Mode
+
+Enhanced Mode helps local LLMs achieve results closer to Claude Code by providing:
+
+### Key Features
+
+1. **Task Completion Focus** - The model is prompted to always complete tasks, not just explain them
+2. **Automatic Verification** - Every file operation is verified to ensure it succeeded
+3. **Smart Retry** - When operations fail, the system analyzes errors and tries alternative approaches
+4. **Quality Checks** - Code is checked for completeness (no TODO placeholders)
+
+### Using Enhanced Mode
+
+Enhanced mode is **enabled by default**. You can toggle it with:
+
+```
+You: /enhanced    # Enable enhanced mode
+You: /basic       # Disable enhanced mode
+```
+
+### How It Helps
+
+When enhanced mode is active:
+- File writes are automatically verified
+- Failed operations are retried with different approaches
+- Missing directories are created automatically
+- Command errors trigger alternative commands
+- The model is strongly prompted to complete work
+
+### Example
+
+Without enhanced mode:
+```
+You: Create a test file
+Assistant: You can create a test file using the Write tool...
+```
+
+With enhanced mode:
+```
+You: Create a test file
+Assistant: I'll create that test file now.
+[Tool: Write]
+✓ File created and verified
 ```
 
 ## 🔄 Switching Models

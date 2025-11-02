@@ -5,11 +5,14 @@
  * Interactive CLI for local LLM coding assistant using Ollama
  */
 
-import { query, healthCheck, listModels, config } from './sdk.mjs';
+import { query, healthCheck, listModels, config, Session } from './sdk.mjs';
+import { queryEnhanced } from './sdk-enhanced.mjs';
 import { Orchestrator } from './orchestrator.js';
 import { CodebaseIndexer } from './rag/indexer.js';
 import * as readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
+import { readdirSync, statSync } from 'fs';
+import { join } from 'path';
 import os from 'os';
 
 // Detect platform and provide appropriate command examples
@@ -246,6 +249,7 @@ async function interactiveMode() {
   const conversationHistory = [];
   let multiAgentMode = false;  // Track multi-agent mode
   let reviewerEnabled = false;  // Track reviewer agent
+  let enhancedMode = config.get('enhancedMode') !== false;  // Enhanced mode on by default
 
   // Add system prompt
   conversationHistory.push({
@@ -277,6 +281,12 @@ async function interactiveMode() {
         if (result && result.reviewerEnabled !== undefined) {
           reviewerEnabled = result.reviewerEnabled;
         }
+        if (result && result.enhancedMode !== undefined) {
+          enhancedMode = result.enhancedMode;
+        }
+        if (result && result.resumedSession) {
+          // Session was resumed, history already updated by handleCommand
+        }
         continue;
       }
 
@@ -293,13 +303,23 @@ async function interactiveMode() {
       });
 
       console.log('\nAssistant: ');
+      if (enhancedMode) {
+        console.log('(Enhanced mode active)\n');
+      }
       let assistantResponse = '';
 
       try {
-        for await (const event of query({
+        const queryFunction = enhancedMode ? queryEnhanced : query;
+        const queryOptions = {
           messages: conversationHistory,
-          signal: AbortSignal.timeout(300000)
-        })) {
+          signal: AbortSignal.timeout(300000),
+          useEnhancedMode: enhancedMode,
+          autoVerify: enhancedMode,
+          smartRetry: enhancedMode,
+          platformInfo: getPlatformInfo()
+        };
+
+        for await (const event of queryFunction(queryOptions)) {
           if (event.type === 'stream_event') {
             if (event.event.type === 'content_block_delta' && event.event.delta?.text) {
               process.stdout.write(event.event.delta.text);
@@ -307,6 +327,10 @@ async function interactiveMode() {
             }
           } else if (event.type === 'tool_result') {
             console.log(`\n[Tool: ${event.tool}]`);
+          } else if (event.type === 'verification_warning') {
+            console.log(`\n⚠️ Verification issues: ${event.issues.join(', ')}`);
+          } else if (event.type === 'retry_info') {
+            console.log(`\n🔄 Retry successful after ${event.attempts} attempts`);
           } else if (event.type === 'error') {
             console.error('\nError:', event.message);
           }
@@ -334,6 +358,49 @@ async function interactiveMode() {
 }
 
 /**
+ * List available sessions
+ */
+function listSessions() {
+  const sessionsDir = config.getSessionsDir();
+  try {
+    const files = readdirSync(sessionsDir);
+    const sessions = files
+      .filter(file => file.endsWith('.json'))
+      .map(file => {
+        const sessionId = file.replace('.json', '');
+        const filePath = join(sessionsDir, file);
+        const stats = statSync(filePath);
+
+        try {
+          const session = Session.load(sessionId);
+          const messageCount = session.messages.length;
+          const lastMessage = session.messages[session.messages.length - 1];
+          return {
+            id: sessionId,
+            date: stats.mtime,
+            messages: messageCount,
+            lastActivity: lastMessage?.timestamp || stats.mtime.toISOString(),
+            preview: lastMessage?.content?.substring(0, 50) || 'No messages'
+          };
+        } catch (err) {
+          return {
+            id: sessionId,
+            date: stats.mtime,
+            messages: 0,
+            lastActivity: stats.mtime.toISOString(),
+            preview: 'Unable to load session'
+          };
+        }
+      })
+      .sort((a, b) => b.date - a.date);
+
+    return sessions;
+  } catch (error) {
+    return [];
+  }
+}
+
+/**
  * Handle special commands
  */
 async function handleCommand(command, history) {
@@ -349,6 +416,10 @@ Available commands:
   /model <name>      - Switch to a different model
   /config            - Show current configuration
   /clear             - Clear conversation history
+  /sessions          - List saved sessions
+  /resume <id>       - Resume a previous session
+  /enhanced          - Enable enhanced mode (verification & retry)
+  /basic             - Disable enhanced mode
   /multiagent        - Enable multi-agent mode (Explorer → Planner → Coder)
   /singleagent       - Disable multi-agent mode (default)
   /reviewer          - Enable reviewer agent (validation & auto-fixing)
@@ -391,6 +462,16 @@ Available commands:
       console.log('Conversation history cleared.\n');
       break;
 
+    case 'enhanced':
+      console.log('✅ Enhanced mode ENABLED');
+      console.log('Features: automatic verification, smart retry, and task completion focus\n');
+      return { enhancedMode: true };
+
+    case 'basic':
+      console.log('✅ Enhanced mode DISABLED');
+      console.log('Using basic mode without verification and retry\n');
+      return { enhancedMode: false };
+
     case 'multiagent':
       console.log('✅ Multi-agent mode ENABLED');
       console.log('Next prompt will use: Explorer → Planner → Coder pipeline\n');
@@ -415,6 +496,80 @@ Available commands:
       console.log('📚 Indexing codebase for RAG...');
       const indexPath = parts[1] || process.cwd();
       await indexCodebase(indexPath);
+      break;
+
+    case 'sessions':
+      const sessions = listSessions();
+      if (sessions.length === 0) {
+        console.log('\nNo saved sessions found.\n');
+      } else {
+        console.log('\nSaved sessions:');
+        console.log('─'.repeat(60));
+        sessions.slice(0, 10).forEach(session => {
+          const date = new Date(session.lastActivity);
+          const dateStr = date.toLocaleString();
+          console.log(`ID: ${session.id}`);
+          console.log(`   Last: ${dateStr} | Messages: ${session.messages}`);
+          console.log(`   Preview: ${session.preview}...`);
+          console.log('─'.repeat(60));
+        });
+        if (sessions.length > 10) {
+          console.log(`\n... and ${sessions.length - 10} more sessions`);
+        }
+        console.log('\nUse /resume <session-id> to resume a session\n');
+      }
+      break;
+
+    case 'resume':
+      const sessionId = parts[1];
+      if (!sessionId) {
+        console.log('Usage: /resume <session-id>');
+        console.log('Use /sessions to list available sessions\n');
+        break;
+      }
+
+      try {
+        const session = Session.load(sessionId);
+        console.log(`\nResuming session: ${sessionId}`);
+        console.log(`Messages in session: ${session.messages.length}`);
+
+        // Clear current history and replace with session history
+        history.length = 0;
+        session.messages.forEach(msg => {
+          history.push({
+            role: msg.role,
+            content: msg.content
+          });
+        });
+
+        // Ensure system prompt is at the beginning if not present
+        if (history.length === 0 || history[0].role !== 'system') {
+          history.unshift({
+            role: 'system',
+            content: SYSTEM_PROMPT
+          });
+        }
+
+        console.log('Session resumed! Continue your conversation.\n');
+
+        // Show last few messages for context
+        const recentMessages = session.messages.slice(-3);
+        if (recentMessages.length > 0) {
+          console.log('Recent conversation:');
+          console.log('─'.repeat(60));
+          recentMessages.forEach(msg => {
+            const preview = msg.content.substring(0, 200);
+            console.log(`${msg.role.toUpperCase()}: ${preview}${msg.content.length > 200 ? '...' : ''}`);
+          });
+          console.log('─'.repeat(60) + '\n');
+        }
+
+        // Return session info to be used in interactive mode
+        return { resumedSession: session };
+      } catch (error) {
+        console.log(`Error loading session: ${error.message}`);
+        console.log('Use /sessions to list available sessions\n');
+      }
       break;
 
     default:
